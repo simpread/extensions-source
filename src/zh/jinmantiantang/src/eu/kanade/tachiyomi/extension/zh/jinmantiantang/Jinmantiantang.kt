@@ -387,11 +387,10 @@ abstract class Jinmantiantang :
     }
 
     // 详情页介绍区的“頁數：27”(span.pagecount，连载中的作品可能没有)
-    private fun parsePageCount(document: Document): String? =
-        PAGE_COUNT_REGEX.find(
-            document.selectFirst("span.pagecount")?.text()
-                ?: document.selectFirst("#intro-block")?.text().orEmpty(),
-        )?.groupValues?.get(1)
+    private fun parsePageCount(document: Document): String? = PAGE_COUNT_REGEX.find(
+        document.selectFirst("span.pagecount")?.text()
+            ?: document.selectFirst("#intro-block")?.text().orEmpty(),
+    )?.groupValues?.get(1)
 
     // Filters
     override fun getFilterList(data: JsonElement?) = FilterList(
