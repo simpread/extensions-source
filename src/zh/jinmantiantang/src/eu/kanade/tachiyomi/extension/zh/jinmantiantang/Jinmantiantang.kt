@@ -81,16 +81,21 @@ abstract class Jinmantiantang :
         val document = response.asJsoup()
         val mangas = document.select("div.list-col > div.p-b-15:not([data-group])")
             .map { popularMangaFromElement(it) }
-            .filterGenre()
+            .filterBlocked()
         val hasNextPage = document.selectFirst("a.prevnext") != null
         return MangasPage(mangas, hasNextPage)
     }
 
-    private fun List<SManga>.filterGenre(): List<SManga> {
+    private fun List<SManga>.filterBlocked(): List<SManga> {
         val removedGenres = preferences.blockList
-        if (removedGenres.all { it.isBlank() }) return this
+        val removedTitles = preferences.blockTitleList
+        if (removedGenres.isEmpty() && removedTitles.isEmpty()) return this
         return this.filterNot { manga ->
-            manga.genre.orEmpty().lowercase().split(", ").any { it in removedGenres }
+            val title = normalizeChinese(manga.title).lowercase()
+            removedTitles.any { it in title } ||
+                manga.genre.orEmpty().split(", ")
+                    .map { normalizeChinese(it).lowercase() }
+                    .any { tag -> removedGenres.any { it in tag } }
         }
     }
 
@@ -229,7 +234,9 @@ abstract class Jinmantiantang :
         }
 
         val document = client.get("$baseUrl/user/$username/favorite/albums?page=$page").asJsoup()
-        val mangas = document.select(FAVORITE_MANGA_SELECTOR).map { favoriteMangaFromElement(it) }
+        val mangas = document.select(FAVORITE_MANGA_SELECTOR)
+            .map { favoriteMangaFromElement(it) }
+            .filterBlocked()
 
         if (mangas.isEmpty() && !document.isLoggedIn()) {
             throw Exception("登录已过期，请重新在应用内置浏览器中登录")
@@ -308,7 +315,10 @@ abstract class Jinmantiantang :
         // When the index passed by the "selectDetailsStatusAndGenre(document: Document, index: Int)" index is 1,
         // it will definitely return a String type of 0, 1 or 2. This warning can be ignored
         status = selectDetailsStatusAndGenre(document, 1).trim().toIntOrNull() ?: 0
-        description = document.selectFirst("#intro-block .p-t-5.p-b-5")?.text()?.substringAfter("敘述：")?.trim() ?: ""
+        description = buildString {
+            parsePageCount(document)?.let { append("页数：").append(it).append("\n\n") }
+            append(document.selectFirst("#intro-block .p-t-5.p-b-5")?.text()?.substringAfter("敘述：")?.trim().orEmpty())
+        }
     }
 
     override fun getMangaUrl(manga: SManga) = "$baseUrl${manga.url}"
@@ -369,11 +379,16 @@ abstract class Jinmantiantang :
                 name = "单章节"
                 url = singleUrl
                 date_upload = dateFormat.tryParse(document.select("[itemprop=datePublished]").last()?.attr("content"))
+                parsePageCount(document)?.let { scanlator = "${it}P" }
             }
             return listOf(singleChapter)
         }
         return elements.map { chapterFromElement(it) }.reversed()
     }
+
+    // 详情页介绍区的“頁數：27”(连载中的作品可能没有)
+    private fun parsePageCount(document: Document): String? =
+        PAGE_COUNT_REGEX.find(document.selectFirst("#intro-block")?.text().orEmpty())?.groupValues?.get(1)
 
     // Filters
     override fun getFilterList(data: JsonElement?) = FilterList(
@@ -568,5 +583,6 @@ abstract class Jinmantiantang :
         private const val FAVORITE_MANGA_SELECTOR = "div[id^='favorites_album_']"
         private const val CHECKIN_PREF = "auto_checkin"
         private const val CHECKIN_DATE_PREF = "last_checkin_date"
+        private val PAGE_COUNT_REGEX = Regex("""頁數[：:]\s*(\d+)""")
     }
 }

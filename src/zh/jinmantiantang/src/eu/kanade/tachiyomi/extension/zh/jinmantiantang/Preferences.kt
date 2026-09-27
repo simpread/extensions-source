@@ -31,13 +31,21 @@ internal fun getPreferenceList(
     },
 
     EditTextPreference(context).apply {
+        key = BLOCK_TITLE_PREF
+        title = "标题屏蔽词列表"
+        dialogTitle = "标题屏蔽词列表"
+        dialogMessage = "标题包含任一关键词的漫画不显示（含搜索和收藏夹）。" +
+            "关键词之间用空格分离，简繁体自动互通，大小写不敏感。"
+    },
+
+    EditTextPreference(context).apply {
         key = BLOCK_PREF
-        title = "屏蔽词列表"
+        title = "标签屏蔽词列表"
         setDefaultValue(
-            "// 例如 \"YAOI cos 扶他 毛絨絨 獵奇 韩漫 韓漫\", " +
-                "关键词之间用空格分离, 大小写不敏感, \"//\"后的字符会被忽略",
+            "// 例如 \"YAOI cos 扶他 毛茸茸 猎奇 韩漫 CG图集\", " +
+                "关键词之间用空格分离, 简繁体自动互通, \"//\"后的字符会被忽略",
         )
-        dialogTitle = "关键词列表"
+        dialogTitle = "标签屏蔽词列表"
     },
 )
 
@@ -51,6 +59,23 @@ internal val SharedPreferences.mirrorBaseUrl: String
     }
 
 internal const val BLOCK_PREF = "BLOCK_GENRES_LIST"
+
+internal const val BLOCK_TITLE_PREF = "BLOCK_TITLE_LIST"
+
+private val BLOCKLIST_DELIMITERS = Regex("""[\s,，、;；]+""")
+
+private fun SharedPreferences.getBlocklist(key: String): List<String> =
+    getString(key, "")!!
+        .substringBefore("//")
+        .split(BLOCKLIST_DELIMITERS)
+        .filter { it.isNotBlank() }
+        .map { normalizeChinese(it).lowercase() }
+
+internal val SharedPreferences.blockList: List<String>
+    get() = getBlocklist(BLOCK_PREF)
+
+internal val SharedPreferences.blockTitleList: List<String>
+    get() = getBlocklist(BLOCK_TITLE_PREF)
 
 // 登录用户名：沿用官方 1.6 已有的 "username" 键（收藏夹自动识别功能在用），保证旧设置值直接生效
 internal const val USERNAME_PREF = "username"
@@ -68,9 +93,6 @@ internal fun clearSessionCookies(baseUrl: String) {
     }
     manager.flush()
 }
-
-internal val SharedPreferences.blockList: List<String>
-    get() = getString(BLOCK_PREF, "")!!.substringBefore("//").trim().lowercase().split(' ')
 
 private const val USE_MIRROR_URL_PREF = "useMirrorWebsitePreference"
 

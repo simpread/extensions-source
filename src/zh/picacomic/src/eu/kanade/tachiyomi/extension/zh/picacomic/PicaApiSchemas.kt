@@ -58,6 +58,8 @@ data class PicaSearchComic(
     val description: String? = null,
     val chineseTeam: String? = null,
     val tags: List<String>? = null,
+    val pagesCount: Int = 0,
+    val epsCount: Int = 0,
 )
 
 @Serializable

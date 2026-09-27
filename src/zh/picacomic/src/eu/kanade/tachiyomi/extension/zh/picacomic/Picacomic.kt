@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.extension.zh.picacomic
 
+import android.content.SharedPreferences
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
@@ -156,7 +157,11 @@ abstract class Picacomic :
         // return comics from some search
         val url = "$apiUrl/comics/advanced-search?page=$page"
 
-        val body = PicaSearchPayload(query, sort ?: "dd").toJsonString().toRequestBody()
+        val body = PicaSearchPayload(
+            query,
+            sort ?: "dd",
+            category?.takeIf(String::isNotEmpty)?.let(::listOf),
+        ).toJsonString().toRequestBody()
 
         return parseSearchManga(client.post(url, body))
     }
@@ -218,7 +223,14 @@ abstract class Picacomic :
             url = manga.url
             title = comic.title
             author = comic.author
-            description = comic.description
+            description = buildString {
+                if (comic.pagesCount > 0) {
+                    append("页数：").append(comic.pagesCount)
+                    append(" · 章节：").append(comic.epsCount)
+                    append("\n\n")
+                }
+                append(comic.description.orEmpty())
+            }
             artist = comic.artist
             genre = ((comic.tags ?: (emptyList<String>() + comic.categories)))
                 .map(String::trim)
@@ -235,7 +247,7 @@ abstract class Picacomic :
 
         val comicId = manga.url.comicId()
 
-        return coroutineScope {
+        val chapters = coroutineScope {
             val restPages = (2..eps.pages).map { page ->
                 async {
                     client.get("${manga.url}/eps?page=$page").parseAs<PicaResponse>().data.eps!!.docs
@@ -253,6 +265,14 @@ abstract class Picacomic :
                     }
                 }
             }
+
+        // Single-episode comic: show the total page count in the chapter list
+        if (chapters.size == 1) {
+            val pagesCount = client.get(manga.url).parseAs<PicaResponse>().data.comic?.pagesCount ?: 0
+            if (pagesCount > 0) chapters[0].scanlator = "${pagesCount}P"
+        }
+
+        return chapters
     }
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
@@ -290,8 +310,8 @@ abstract class Picacomic :
             preferences.edit().putString("TOKEN", value).apply()
         }
 
-    private val blocklist get() = preferences.getString("BLOCK_GENRES", "")!!
-        .split(',').map { it.trim() }
+    private val titleBlocklist get() = preferences.getBlocklist(BLOCK_TITLES_PREF)
+    private val genreBlocklist get() = preferences.getBlocklist("BLOCK_GENRES")
     private val username get() = preferences.getString("USERNAME", "")!!
     private val password get() = preferences.getString("PASSWORD", "")!!
     private val quality get() = preferences.getString("IMAGE_QUALITY", "original")!!
@@ -309,12 +329,18 @@ abstract class Picacomic :
         }.let(screen::addPreference)
 
         EditTextPreference(screen.context).apply {
+            key = BLOCK_TITLES_PREF
+            title = "标题屏蔽词列表"
+            dialogTitle = "标题屏蔽词列表"
+            dialogMessage = "标题包含任一关键词的漫画不显示（含搜索结果）。关键词之间用空格分离，简繁体自动互通，大小写不敏感。"
+        }.let(screen::addPreference)
+
+        EditTextPreference(screen.context).apply {
             key = "BLOCK_GENRES"
-            title = "屏蔽词列表"
-            dialogTitle = "屏蔽词列表"
-            dialogMessage = "根据关键词过滤漫画，关键词之间用','分离。" +
-                "关键词分为分类和标签两种，在热门和最新中只能按分类过滤（即在filter的类型中出现的词），" +
-                "而在搜索中两者都可以"
+            title = "标签屏蔽词列表"
+            dialogTitle = "标签屏蔽词列表"
+            dialogMessage = "标签或分类包含任一关键词的漫画不显示（含搜索结果）。关键词之间用空格分离，简繁体自动互通，大小写不敏感。" +
+                "注意：在热门和最新中只能按分类过滤（即筛选器类型列表中的词），在搜索中标签也可以。"
         }.let(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -342,9 +368,22 @@ abstract class Picacomic :
     }
 
     // Utils
-    private fun hitBlocklist(comic: PicaSearchComic) = ((comic.tags ?: (emptyList<String>() + comic.categories)))
-        .map(String::trim)
-        .any { it in blocklist }
+    private fun hitBlocklist(comic: PicaSearchComic): Boolean {
+        val titleKeywords = titleBlocklist
+        if (titleKeywords.isNotEmpty()) {
+            val title = normalizeChinese(comic.title).lowercase()
+            if (titleKeywords.any { it in title }) return true
+        }
+
+        val genreKeywords = genreBlocklist
+        if (genreKeywords.isNotEmpty()) {
+            val tags = (comic.tags ?: comic.categories)
+                .map { normalizeChinese(it.trim()).lowercase() }
+            if (tags.any { tag -> genreKeywords.any { it in tag } }) return true
+        }
+
+        return false
+    }
 
     private fun encrypt(url: String, time: Long, method: String, nonce: String): String {
         val hmacSha256Key = "~d}\$Q7\$eIni=V)9\\RK/P.RM4;9[7|@/CA}b~OW!3?EV`:<>M7pddUBL5n|0/*Cn"
@@ -395,3 +434,12 @@ abstract class Picacomic :
 
 const val APP_CHANNEL = "APP_CHANNEL"
 const val APP_CHANNEL_URL = "APP_CHANNEL_URL"
+const val BLOCK_TITLES_PREF = "BLOCK_TITLES"
+
+private val BLOCKLIST_DELIMITERS = Regex("""[\s,，、;；]+""")
+
+private fun SharedPreferences.getBlocklist(key: String): List<String> =
+    getString(key, "")!!
+        .split(BLOCKLIST_DELIMITERS)
+        .filter { it.isNotBlank() }
+        .map { normalizeChinese(it).lowercase() }
