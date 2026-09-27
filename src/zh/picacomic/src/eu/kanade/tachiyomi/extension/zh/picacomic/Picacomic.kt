@@ -438,8 +438,7 @@ const val BLOCK_TITLES_PREF = "BLOCK_TITLES"
 
 private val BLOCKLIST_DELIMITERS = Regex("""[\s,，、;；]+""")
 
-private fun SharedPreferences.getBlocklist(key: String): List<String> =
-    getString(key, "")!!
-        .split(BLOCKLIST_DELIMITERS)
-        .filter { it.isNotBlank() }
-        .map { normalizeChinese(it).lowercase() }
+private fun SharedPreferences.getBlocklist(key: String): List<String> = getString(key, "")!!
+    .split(BLOCKLIST_DELIMITERS)
+    .filter { it.isNotBlank() }
+    .map { normalizeChinese(it).lowercase() }
